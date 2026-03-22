@@ -366,6 +366,10 @@ public class Camera1Handler implements ICameraHandler {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
                         LogUtil.log("【CS】Camera1 release，释放播放器资源");
+                        // FIX #3: Stop decoder thread on camera release to prevent zombie frames
+                        if (HookMain.hw_decode_obj != null) {
+                            HookMain.hw_decode_obj.stopDecode();
+                        }
                         HookMain.playerManager.releaseCamera1Resources();
                         // 清除 Camera1 相关引用
                         HookMain.origin_preview_camera = null;
@@ -554,12 +558,20 @@ public class Camera1Handler implements ICameraHandler {
                             System.arraycopy(HookMain.data_buffer, 0, paramd.args[0], 0,
                                     Math.min(HookMain.data_buffer.length, ((byte[]) paramd.args[0]).length));
                         } else {
-                            HookMain.camera_onPreviewFrame = (android.hardware.Camera) paramd.args[1];
-                            HookMain.mwidth = HookMain.camera_onPreviewFrame.getParameters().getPreviewSize().width;
-                            HookMain.mhight = HookMain.camera_onPreviewFrame.getParameters().getPreviewSize().height;
-                            int frame_Rate = HookMain.camera_onPreviewFrame.getParameters().getPreviewFrameRate();
-                            LogUtil.log("【CS】帧预览回调初始化：宽：" + HookMain.mwidth + " 高：" + HookMain.mhight
-                                    + " 帧率：" + frame_Rate);
+                            // FIX #1: Protect getParameters() against concurrent Camera.release()
+                            try {
+                                HookMain.camera_onPreviewFrame = (android.hardware.Camera) paramd.args[1];
+                                android.hardware.Camera.Parameters params = HookMain.camera_onPreviewFrame.getParameters();
+                                android.hardware.Camera.Size size = params.getPreviewSize();
+                                HookMain.mwidth = size.width;
+                                HookMain.mhight = size.height;
+                                int frame_Rate = params.getPreviewFrameRate();
+                                LogUtil.log("【CS】帧预览回调初始化：宽：" + HookMain.mwidth + " 高：" + HookMain.mhight
+                                        + " 帧率：" + frame_Rate);
+                            } catch (RuntimeException e) {
+                                LogUtil.log("【CS】Camera released during onPreviewFrame init: " + e.getMessage());
+                                return;
+                            }
                             HookMain.need_to_show_toast = !VideoManager.getConfig()
                                     .getBoolean(ConfigManager.KEY_DISABLE_TOAST, false);
                             if (HookMain.toast_content != null && HookMain.need_to_show_toast) {

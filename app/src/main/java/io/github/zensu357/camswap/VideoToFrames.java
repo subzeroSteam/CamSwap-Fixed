@@ -71,9 +71,13 @@ public class VideoToFrames implements Runnable {
         stopDecode = true;
         if (childThread != null) {
             try {
-                childThread.join(500);
+                // FIX #2: Reduce join timeout from 500ms to 100ms for faster camera recycling
+                childThread.join(100);
             } catch (InterruptedException e) {
                 e.printStackTrace();
+            }
+            if (childThread != null && childThread.isAlive()) {
+                childThread.interrupt();
             }
         }
     }
@@ -85,6 +89,8 @@ public class VideoToFrames implements Runnable {
         this.videoPfd = null;
         this.videoFilePath = videoFilePath;
         childThread = null;
+        // FIX #2: Do NOT null out HookMain.data_buffer here — last frame serves as
+        // placeholder while new decoder starts, preventing freeze on rapid camera recycle
         decode(videoFilePath);
     }
 
